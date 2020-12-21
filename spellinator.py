@@ -1,13 +1,51 @@
 #! /usr/bin/env python3
+# coding=utf-8
 
 from collections import deque
+from pprint import pprint
 
 import csv
 import argparse
 import re
+import math
+
+_debug = True
+
+def list_columns(obj, cols=4, columnwise=True, gap=4):
+    """
+    Print the given list in evenly-spaced columns.
+
+    Parameters
+    ----------
+    obj : list
+        The list to be printed.
+    cols : int
+        The number of columns in which the list should be printed.
+    columnwise : bool, default=True
+        If True, the items in the list will be printed column-wise.
+        If False the items in the list will be printed row-wise.
+    gap : int
+        The number of spaces that should separate the longest column
+        item/s from the next column. This is the effective spacing
+        between columns based on the maximum len() of the list items.
+    """
+
+    sobj = [str(item) for item in obj]
+    if cols > len(sobj): cols = len(sobj)
+    max_len = max([len(item) for item in sobj])
+    if columnwise: cols = int(math.ceil(float(len(sobj)) / float(cols)))
+    plist = [sobj[i: i+cols] for i in range(0, len(sobj), cols)]
+    if columnwise:
+        if not len(plist[-1]) == cols:
+            plist[-1].extend(['']*(len(sobj) - len(plist[-1])))
+        plist = zip(*plist)
+    printer = '\n'.join([
+        ''.join([c.ljust(max_len + gap) for c in p])
+        for p in plist])
+    print(printer)
 
 
-class WordNode:
+class SequenceNode:
     def __init__(self, gene, remainder):
         self.gene = gene
         self.remainder = remainder
@@ -15,22 +53,6 @@ class WordNode:
 
     def __repr__(self):
         return str(self.gene)
-
-
-def walk_word(word_root: WordNode):
-    spellings = set()
-    stack = deque()
-    stack.append((word_root, ""))
-    while stack:
-        curr, path = stack.pop()
-        path += str(curr)
-        if not curr.follow:
-            spellings.add(path)
-
-        for follow in curr.follow:
-            stack.append((follow, path))
-
-    return spellings
 
 
 class Neme:
@@ -48,9 +70,9 @@ class Neme:
 
 
 class Phoneme(Neme):
-    all_phonemes = dict()
 
-    def __init__(self, name, number, starts: set = None, middles: set = None, ends: set = None):
+    def __init__(self, name, number, phoneme_dict: dict, grapheme_dict: dict,
+                 starts: set = None, middles: set = None, ends: set = None):
         self.number = number
         graphs = {
             'starts': set(),
@@ -66,7 +88,7 @@ class Phoneme(Neme):
 
         for gtype, seed_list in seeds.items():
             for graph in seed_list:
-                graph_obj = Graphemes.all_graphemes[graph] if graph in Graphemes.all_graphemes else Graphemes(graph)
+                graph_obj = grapheme_dict[graph] if graph in grapheme_dict else Graphemes(graph, grapheme_dict)
                 g_association = getattr(graph_obj, gtype)
                 g_association.add(self)
                 setattr(graph_obj, gtype, g_association)
@@ -74,21 +96,20 @@ class Phoneme(Neme):
 
         super().__init__(name, **graphs)
 
-        Phoneme.all_phonemes[self.name] = self
+        phoneme_dict[self.name] = self
 
     def __hash__(self):
         return self.number
 
 
 class Graphemes(Neme):
-    all_graphemes = dict()
 
-    def __init__(self, name):
+    def __init__(self, name, grapheme_dict: dict):
         super().__init__(name)
 
         self.phonemes = list()
 
-        Graphemes.all_graphemes[self.name] = self
+        grapheme_dict[self.name] = self
 
     def __hash__(self):
         return hash(self.name)
@@ -118,6 +139,20 @@ def parse_args():
         '--input',
         default='dict.txt',
         help='Text file containing one word per line to spellinate.'
+    )
+
+    parser.add_argument(
+        '-c',
+        '--categories',
+        default='categories.csv',
+        help='CSV containing graph categories, used to apply weights to output graphs'
+    )
+
+    parser.add_argument(
+        '-w',
+        '--weights',
+        default='weights.csv',
+        help='CSV containing weights for graphemes/categories.'
     )
 
     args = parser.parse_args()
@@ -155,7 +190,8 @@ def generate_nemes(neme_file):
             csv_readin.append((idx, name, anywhere_set, start_set, middle_set, end_set))
 
     # Now work directly off the read-in data
-    known_phonemes = dict()
+    phoneme_dict = dict()
+    grapheme_dict = dict()
 
     for number, name, anywhere_set, start_set, middle_set, end_set in csv_readin:
         start_set = anywhere_set | start_set
@@ -165,16 +201,17 @@ def generate_nemes(neme_file):
         phone = Phoneme(
             name=name,
             number=number,
+            phoneme_dict=phoneme_dict,
+            grapheme_dict=grapheme_dict,
             starts=start_set,
             middles=middle_set,
             ends=end_set,
         )
-        known_phonemes[number] = phone
 
-    return known_phonemes
+    return phoneme_dict, grapheme_dict
 
 
-def transcribe(word: str, genes: list):
+def reverse_translate(rna: str, genes: list):
     results = []
 
     starting_genes = set((gene for gene in genes if gene.starts))
@@ -184,12 +221,12 @@ def transcribe(word: str, genes: list):
     word_list = []
 
     for sg in starting_genes:
-        if word == str(sg):
+        if rna == str(sg):
             for amino in sg.starts:
-                results.append(WordNode(amino, None))
-        if word.startswith(str(sg)):
+                results.append(SequenceNode(amino, None))
+        if rna.startswith(str(sg)):
             for amino in sg.starts:
-                word_node = WordNode(amino, word.replace(str(sg), '', 1))
+                word_node = SequenceNode(amino, rna.replace(str(sg), '', 1))
                 # Add to working list
                 word_list.append(word_node)
                 # Add to results list
@@ -207,14 +244,14 @@ def transcribe(word: str, genes: list):
                 if remaining_word.endswith(str(eg)) and len(new_remainder) == 0:
                     # print(f'Finished with {str(eg)}')
                     for amino in eg.ends:
-                        word_node.follow.append(WordNode(amino, None))
+                        word_node.follow.append(SequenceNode(amino, None))
 
             for mg in middling_genes:
                 new_remainder = remaining_word.replace(str(mg), '', 1)
                 if remaining_word.startswith(str(mg)) and len(new_remainder) > 0:
                     # print(f'Enqueued {str(mg)}')
                     for amino in mg.middles:
-                        new_word_node = WordNode(amino, new_remainder)
+                        new_word_node = SequenceNode(amino, new_remainder)
                         word_node.follow.append(new_word_node)
                         new_word_list.append(new_word_node)
 
@@ -223,45 +260,115 @@ def transcribe(word: str, genes: list):
     return results
 
 
+def translate(start_codon: SequenceNode):
+    spellings = set()
+    stack = deque()
+    stack.append((start_codon, ""))
+    while stack:
+        curr, path = stack.pop()
+        path += str(curr)
+        if not curr.follow:
+            spellings.add(path)
+
+        for follow in curr.follow:
+            stack.append((follow, path))
+
+    return spellings
+
+
+def transcribe(start_codon: SequenceNode):
+    proteins = list()
+    stack = deque()
+    for start in start_codon.gene.starts:
+        for follow in start_codon.follow:
+            stack.append((follow, [start], [start_codon]))
+
+    while stack:
+        curr: SequenceNode
+        curr, path, gene = stack.pop()
+
+        if not curr.follow:
+            for end in curr.gene.ends:
+                new_path = path[:]
+                new_path.append(end)
+                new_gene = gene[:]
+                new_gene.append(curr)
+                proteins.append((new_path, new_gene))
+                # if _debug:
+                #     print(new_path)
+
+        for follow in curr.follow:
+            for middle in curr.gene.middles:
+                new_path = path[:]
+                new_path.append(middle)
+                new_gene = gene[:]
+                new_gene.append(curr)
+                stack.append((follow, new_path, new_gene))
+
+    return proteins
+
+
 def main():
     args = parse_args()
 
-    phonemes = generate_nemes(args.phonemes)
+    phoneme_dict, grapheme_dict = generate_nemes(args.phonemes)
 
-    # phone: Phoneme
+    # phone: phoneme
     # for phone in phonemes.values():
     #     print(f'{phone.name}')
-    #     print(f'    Start: {phone.starts}')
-    #     print(f'    Middles: {phone.middles}')
-    #     print(f'    Ends: {phone.ends}')
+    #     print(f'    start: {phone.starts}')
+    #     print(f'    middles: {phone.middles}')
+    #     print(f'    ends: {phone.ends}')
     #     print('='*40)
     #
     # print('\n'+'-'*40+'\n')
-    # graph: Graphemes
-    # for graph in Graphemes.all_graphemes.values():
+    # graph: graphemes
+    # for graph in graphemes.all_graphemes.values():
     #     print(f'{graph.name}')
-    #     print(f'    Start: {graph.starts}')
-    #     print(f'    Middles: {graph.middles}')
-    #     print(f'    Ends: {graph.ends}')
+    #     print(f'    start: {graph.starts}')
+    #     print(f'    middles: {graph.middles}')
+    #     print(f'    ends: {graph.ends}')
     #     print('=' * 40)
 
     word = "arthur"
-    transcriptions = transcribe(word, Graphemes.all_graphemes.values())
-    phonetic = transcriptions[0]
-    print('=====Spellcheck====')
-    spell_test = walk_word(phonetic)
-    for spelling in spell_test:
-        print(spelling)
-    phoword = spell_test.pop()
-    print('====Phoword====')
-    print(phoword)
-    phoword = 'ɑ:rθer'
-    reverse_transcriptions = transcribe(phoword, Phoneme.all_phonemes.values())
-    graphetic = reverse_transcriptions[0]
-    print('=====Spellcheck====')
-    spell_test = walk_word(graphetic)
-    for spelling in spell_test:
-        print(spelling)
+    # Take the word and generate ways it could be pronounced, as a set of trees
+    phonetic_sequence = reverse_translate(word, grapheme_dict.values())
+
+    plist_full = []
+    # For each way-tree of how it could be pronounced
+    for pseq in phonetic_sequence:
+        glist_full = []
+        # Write out the possible phonetics
+        phonetic_list = translate(pseq)
+        plist_full.extend(phonetic_list)
+        list_columns(phonetic_list, 8, True, 2)
+        # Generate ways to write the sound-tree
+        graphic_sequence = transcribe(pseq)
+        glist_full.extend((''.join(map(str, seq[1])) + ' -> ' + ''.join(map(str, seq[0])) for seq in graphic_sequence))
+        list_columns(glist_full, 6, True, 2)
+
+    # list_columns(plist_full, 8, True, 2)
+
+
+
+
+    # print(grapheme_dict.keys())
+    # print(phoneme_dict.keys())
+
+    # print('=====spellcheck====')
+    # spell_test = translate(phonetic)
+    # for spelling in spell_test:
+    #     print(spelling)
+    # phoword = spell_test.pop()
+    # print('====phoword====')
+    # print(phoword)
+    # phoword = 'ɑ:rθer'
+    # reverse_transcriptions = reverse_translate(phoword, Phoneme.all_phonemes.values())
+    # graphetic = reverse_transcriptions[0]
+    # print('=====spellcheck====')
+    # spell_test = translate(graphetic)
+    # for spelling in spell_test:
+    #     print(spelling)
 
 if __name__ == '__main__':
     main()
