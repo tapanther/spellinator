@@ -11,6 +11,7 @@ import math
 
 _debug = True
 
+
 def list_columns(obj, cols=4, columnwise=True, gap=4):
     """
     Print the given list in evenly-spaced columns.
@@ -34,10 +35,10 @@ def list_columns(obj, cols=4, columnwise=True, gap=4):
     if cols > len(sobj): cols = len(sobj)
     max_len = max([len(item) for item in sobj])
     if columnwise: cols = int(math.ceil(float(len(sobj)) / float(cols)))
-    plist = [sobj[i: i+cols] for i in range(0, len(sobj), cols)]
+    plist = [sobj[i: i + cols] for i in range(0, len(sobj), cols)]
     if columnwise:
         if not len(plist[-1]) == cols:
-            plist[-1].extend(['']*(len(sobj) - len(plist[-1])))
+            plist[-1].extend([''] * (len(sobj) - len(plist[-1])))
         plist = zip(*plist)
     printer = '\n'.join([
         ''.join([c.ljust(max_len + gap) for c in p])
@@ -46,10 +47,11 @@ def list_columns(obj, cols=4, columnwise=True, gap=4):
 
 
 class SequenceNode:
-    def __init__(self, gene, remainder):
+    def __init__(self, gene, remainder, stop_valid: bool = None):
         self.gene = gene
         self.remainder = remainder
         self.follow = list()
+        self.stop_valid = stop_valid if stop_valid else False
 
     def __repr__(self):
         return str(self.gene)
@@ -135,10 +137,10 @@ def parse_args():
     )
 
     parser.add_argument(
-        '-i',
-        '--input',
-        default='dict.txt',
-        help='Text file containing one word per line to spellinate.'
+        'input',
+        nargs='?',
+        default='arthur',
+        help='Word to spellinate.'
     )
 
     parser.add_argument(
@@ -155,6 +157,14 @@ def parse_args():
         help='CSV containing weights for graphemes/categories.'
     )
 
+    parser.add_argument(
+        '-t',
+        '--threshold',
+        default=0.25,
+        type=float,
+        help='Threshold to disallow graph.'
+    )
+
     args = parser.parse_args()
 
     return args
@@ -167,6 +177,23 @@ def uncsv(string):
         clean_set = set()
 
     return clean_set
+
+
+def generate_weights(weight_file):
+    weight_dict = dict()
+    with open(weight_file) as csvfile:
+        reader = csv.reader(csvfile)
+        for idx, row in enumerate(reader):
+            weight: str
+            anywhere: str
+            weight, anywhere = row
+
+            weight_val = float(weight)
+            anywhere_set = uncsv(anywhere)
+
+            weight_dict[weight_val] = anywhere_set
+
+    return weight_dict
 
 
 def generate_nemes(neme_file):
@@ -244,7 +271,8 @@ def reverse_translate(rna: str, genes: list):
                 if remaining_word.endswith(str(eg)) and len(new_remainder) == 0:
                     # print(f'Finished with {str(eg)}')
                     for amino in eg.ends:
-                        word_node.follow.append(SequenceNode(amino, None))
+                        new_word_node = SequenceNode(amino, None, True)
+                        word_node.follow.append(new_word_node)
 
             for mg in middling_genes:
                 new_remainder = remaining_word.replace(str(mg), '', 1)
@@ -260,15 +288,25 @@ def reverse_translate(rna: str, genes: list):
     return results
 
 
-def translate(start_codon: SequenceNode):
+def translate(start_codon: SequenceNode, weight_dict: dict = None, threshold=0.25):
     spellings = set()
     stack = deque()
     stack.append((start_codon, ""))
     while stack:
+        curr: SequenceNode
+        path: str
         curr, path = stack.pop()
         path += str(curr)
-        if not curr.follow:
-            spellings.add(path)
+        # Only allow valid spellings
+        if not curr.follow and curr.stop_valid:
+            path_weight = 1.0
+            if weight_dict:
+                for weight_set in sorted(weight_dict.items()):
+                    for seq in weight_set[1]:
+                        if seq in path:
+                            path_weight *= weight_set[0]
+            if path_weight > threshold:
+                spellings.add(path)
 
         for follow in curr.follow:
             stack.append((follow, path))
@@ -276,8 +314,8 @@ def translate(start_codon: SequenceNode):
     return spellings
 
 
-def transcribe(start_codon: SequenceNode):
-    proteins = list()
+def transcribe(start_codon: SequenceNode, weight_dict=None):
+    m_rna = list()
     stack = deque()
     for start in start_codon.gene.starts:
         for follow in start_codon.follow:
@@ -285,33 +323,74 @@ def transcribe(start_codon: SequenceNode):
 
     while stack:
         curr: SequenceNode
-        curr, path, gene = stack.pop()
+        curr, path, codon = stack.pop()
 
-        if not curr.follow:
+        if not curr.follow and curr.stop_valid:
             for end in curr.gene.ends:
-                new_path = path[:]
-                new_path.append(end)
-                new_gene = gene[:]
-                new_gene.append(curr)
-                proteins.append((new_path, new_gene))
+                anticodon = path[:]
+                anticodon.append(end)
+                new_codon = codon[:]
+                new_codon.append(curr)
+                m_rna.append((anticodon, new_codon))
                 # if _debug:
                 #     print(new_path)
 
         for follow in curr.follow:
             for middle in curr.gene.middles:
-                new_path = path[:]
-                new_path.append(middle)
-                new_gene = gene[:]
-                new_gene.append(curr)
-                stack.append((follow, new_path, new_gene))
+                anticodon = path[:]
+                anticodon.append(middle)
+                new_codon = codon[:]
+                new_codon.append(curr)
+                stack.append((follow, anticodon, new_codon))
 
-    return proteins
+    return m_rna
+
+
+def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: dict = None, threshold: float = 1.0):
+    plist_full = []
+    glist_full = []
+    wrap_pattern = re.compile(r'\.(\S+) (\S+)')
+    # For each way-tree of how it could be pronounced
+    for pseq in phonetic_sequences:
+        # Write out the possible phonetics
+        phonetic_list = translate(pseq)
+        plist_full.extend(phonetic_list)
+        # list_columns(phonetic_list, 8, True, 2)
+        # Generate ways to write the sound-tree
+        graphic_sequence = transcribe(pseq)
+        for seq in graphic_sequence:
+            phonetic = ''.join(map(str, seq[1]))
+            graphic_i = ' '.join(map(str, seq[0]))
+            graphic_o = re.sub(wrap_pattern, r'\2\1', graphic_i)
+            graphic = ''.join(graphic_o.split())
+            graph_weight = 1.0
+            if weight_dict:
+                for weight_set in sorted(weight_dict.items()):
+                    for wseq in weight_set[1]:
+                        if wseq in graphic:
+                            count = graphic.count(wseq)
+                            graph_weight *= weight_set[0] ** count
+
+            if graph_weight >= threshold:
+                glist_full.append(phonetic + ' -> ' + graphic)
+            # else:
+            #     print(f'Rejected: {graphic}')
+
+    return glist_full, plist_full
 
 
 def main():
     args = parse_args()
 
+    weight_dict = generate_weights(args.weights)
+
+    # pprint(weight_dict)
+    # raise NotImplementedError
+
     phoneme_dict, grapheme_dict = generate_nemes(args.phonemes)
+
+    # print(grapheme_dict.keys())
+    # print(phoneme_dict.keys())
 
     # phone: phoneme
     # for phone in phonemes.values():
@@ -330,30 +409,16 @@ def main():
     #     print(f'    ends: {graph.ends}')
     #     print('=' * 40)
 
-    word = "arthur"
+    # Single word input, toss extra words, lowercase only.
+    word = args.input.split()[0].lower()
     # Take the word and generate ways it could be pronounced, as a set of trees
-    phonetic_sequence = reverse_translate(word, grapheme_dict.values())
+    phonetic_sequences = reverse_translate(word, grapheme_dict.values())
 
-    plist_full = []
-    # For each way-tree of how it could be pronounced
-    for pseq in phonetic_sequence:
-        glist_full = []
-        # Write out the possible phonetics
-        phonetic_list = translate(pseq)
-        plist_full.extend(phonetic_list)
-        list_columns(phonetic_list, 8, True, 2)
-        # Generate ways to write the sound-tree
-        graphic_sequence = transcribe(pseq)
-        glist_full.extend((''.join(map(str, seq[1])) + ' -> ' + ''.join(map(str, seq[0])) for seq in graphic_sequence))
-        list_columns(glist_full, 6, True, 2)
+    glist_full, plist_full = true_translate(phonetic_sequences, phoneme_dict, weight_dict, args.threshold)
+
+    list_columns(glist_full, 6, True, 2)
 
     # list_columns(plist_full, 8, True, 2)
-
-
-
-
-    # print(grapheme_dict.keys())
-    # print(phoneme_dict.keys())
 
     # print('=====spellcheck====')
     # spell_test = translate(phonetic)
@@ -369,6 +434,7 @@ def main():
     # spell_test = translate(graphetic)
     # for spelling in spell_test:
     #     print(spelling)
+
 
 if __name__ == '__main__':
     main()
