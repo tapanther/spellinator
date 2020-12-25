@@ -137,6 +137,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        '-m',
+        '--phoneme-map',
+        help='Optional output phoneme map for transliterations.'
+    )
+
+    parser.add_argument(
         'input',
         nargs='?',
         default='arthur',
@@ -289,13 +295,13 @@ def reverse_translate(rna: str, genes: list):
 
 
 def translate(start_codon: SequenceNode, weight_dict: dict = None, threshold=0.25):
-    spellings = set()
-    stack = deque()
-    stack.append((start_codon, ""))
-    while stack:
+    proteins = set()
+    chains = deque()
+    chains.append((start_codon, ""))
+    while chains:
         curr: SequenceNode
         path: str
-        curr, path = stack.pop()
+        curr, path = chains.pop()
         path += str(curr)
         # Only allow valid spellings
         if not curr.follow and curr.stop_valid:
@@ -306,19 +312,20 @@ def translate(start_codon: SequenceNode, weight_dict: dict = None, threshold=0.2
                         if seq in path:
                             path_weight *= weight_set[0]
             if path_weight > threshold:
-                spellings.add(path)
+                proteins.add(path)
 
         for follow in curr.follow:
-            stack.append((follow, path))
+            chains.append((follow, path))
 
-    return spellings
+    return proteins
 
 
-def transcribe(start_codon: SequenceNode, weight_dict=None):
+def transcribe(start_codon: SequenceNode, mapping_dict: dict, weight_dict=None):
     m_rna = list()
     stack = deque()
-    for start in start_codon.gene.starts:
+    for start in mapping_dict[str(start_codon)].starts:
         for follow in start_codon.follow:
+            # (new roots, translation, source)
             stack.append((follow, [start], [start_codon]))
 
     while stack:
@@ -326,7 +333,7 @@ def transcribe(start_codon: SequenceNode, weight_dict=None):
         curr, path, codon = stack.pop()
 
         if not curr.follow and curr.stop_valid:
-            for end in curr.gene.ends:
+            for end in mapping_dict[str(curr)].ends:
                 anticodon = path[:]
                 anticodon.append(end)
                 new_codon = codon[:]
@@ -336,7 +343,7 @@ def transcribe(start_codon: SequenceNode, weight_dict=None):
                 #     print(new_path)
 
         for follow in curr.follow:
-            for middle in curr.gene.middles:
+            for middle in mapping_dict[str(curr)].middles:
                 anticodon = path[:]
                 anticodon.append(middle)
                 new_codon = codon[:]
@@ -357,7 +364,7 @@ def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: di
         plist_full.extend(phonetic_list)
         # list_columns(phonetic_list, 8, True, 2)
         # Generate ways to write the sound-tree
-        graphic_sequence = transcribe(pseq)
+        graphic_sequence = transcribe(pseq, phoneme_dict)
         for seq in graphic_sequence:
             phonetic = ''.join(map(str, seq[1]))
             graphic_i = ' '.join(map(str, seq[0]))
@@ -389,8 +396,18 @@ def main():
 
     phoneme_dict, grapheme_dict = generate_nemes(args.phonemes)
 
+    if args.phoneme_map:
+        mapped_phoneme_dict, mapped_grapheme_dict = generate_nemes(args.phoneme_map)
+    else:
+        mapped_phoneme_dict, mapped_grapheme_dict = phoneme_dict, grapheme_dict
+
     # print(grapheme_dict.keys())
     # print(phoneme_dict.keys())
+    #
+    # print(mapped_grapheme_dict.keys())
+    # print(mapped_phoneme_dict.keys())
+    #
+    # raise NotImplementedError
 
     # phone: phoneme
     # for phone in phonemes.values():
@@ -414,7 +431,7 @@ def main():
     # Take the word and generate ways it could be pronounced, as a set of trees
     phonetic_sequences = reverse_translate(word, grapheme_dict.values())
 
-    glist_full, plist_full = true_translate(phonetic_sequences, phoneme_dict, weight_dict, args.threshold)
+    glist_full, plist_full = true_translate(phonetic_sequences, mapped_phoneme_dict, weight_dict, args.threshold)
 
     list_columns(glist_full, 6, True, 2)
 
