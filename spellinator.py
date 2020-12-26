@@ -3,11 +3,14 @@
 
 from collections import deque
 from pprint import pprint
+from time import sleep
 
 import csv
 import argparse
 import re
 import math
+import yaml
+import random
 
 _debug = True
 
@@ -47,11 +50,14 @@ def list_columns(obj, cols=4, columnwise=True, gap=4):
 
 
 class SequenceNode:
+    target_length = 1
+
     def __init__(self, gene, remainder, stop_valid: bool = None):
         self.gene = gene
-        self.remainder = remainder
+        self.remainder: str = remainder
         self.follow = list()
-        self.stop_valid = stop_valid if stop_valid else False
+        self.stop_valid: bool = stop_valid if stop_valid else False
+        self.corruption: float = 1.0
 
     def __repr__(self):
         return str(self.gene)
@@ -72,6 +78,7 @@ class Neme:
 
 
 class Phoneme(Neme):
+    gene_type = 'phoneme'
 
     def __init__(self, name, number, phoneme_dict: dict, grapheme_dict: dict,
                  starts: set = None, middles: set = None, ends: set = None):
@@ -105,6 +112,7 @@ class Phoneme(Neme):
 
 
 class Graphemes(Neme):
+    gene_type = 'grapheme'
 
     def __init__(self, name, grapheme_dict: dict):
         super().__init__(name)
@@ -150,6 +158,13 @@ def parse_args():
     )
 
     parser.add_argument(
+        '-a',
+        '--allow-homographs',
+        action='store_true',
+        help='Allow homographs that have different pronunciations.'
+    )
+
+    parser.add_argument(
         '-c',
         '--categories',
         default='categories.csv',
@@ -164,11 +179,29 @@ def parse_args():
     )
 
     parser.add_argument(
-        '-t',
-        '--threshold',
+        '-g',
+        '--graph-threshold',
         default=0.25,
         type=float,
-        help='Threshold to disallow graph.'
+        help='Threshold to disallow graph based on weights.'
+    )
+
+    parser.add_argument(
+        '-l',
+        '--length-threshold',
+        default=1.10,
+        type=float,
+        help='Threshold to disallow graph based on length. Values greater than 1.0 allow outputs longer than the '
+             'original word by (<threshold> - 1.0) * 100%.'
+    )
+
+    parser.add_argument(
+        '-s',
+        '--stack-limit',
+        default=1000,
+        type=int,
+        help='Maximum size of build stack for graph generation. Larger values allow for more results '
+             'but also take exponentially longer.'
     )
 
     args = parser.parse_args()
@@ -241,6 +274,8 @@ def generate_nemes(neme_file):
             ends=end_set,
         )
 
+    print(f'Generated {len(phoneme_dict)} phonemes and {len(grapheme_dict)} graphemes.')
+
     return phoneme_dict, grapheme_dict
 
 
@@ -256,7 +291,7 @@ def reverse_translate(rna: str, genes: list):
     for sg in starting_genes:
         if rna == str(sg):
             for amino in sg.starts:
-                results.append(SequenceNode(amino, None))
+                results.append(SequenceNode(amino, None, True))
         if rna.startswith(str(sg)):
             for amino in sg.starts:
                 word_node = SequenceNode(amino, rna.replace(str(sg), '', 1))
@@ -289,8 +324,10 @@ def reverse_translate(rna: str, genes: list):
                         word_node.follow.append(new_word_node)
                         new_word_list.append(new_word_node)
 
+        print(f'Generated {len(results)} {word_list[0].gene.gene_type} patterns so far...', end='\r', flush=True)
         word_list = new_word_list
 
+    print('')
     return results
 
 
@@ -320,40 +357,70 @@ def translate(start_codon: SequenceNode, weight_dict: dict = None, threshold=0.2
     return proteins
 
 
-def transcribe(start_codon: SequenceNode, mapping_dict: dict, weight_dict=None):
-    m_rna = list()
-    stack = deque()
-    for start in mapping_dict[str(start_codon)].starts:
-        for follow in start_codon.follow:
+def transcribe(start_codon: SequenceNode, mapping_dict: dict, weight_dict=None,
+               allow_homographs: bool = False,
+               graph_threshold: float = 0.25, length_threshold: float = 1.10,
+               stack_limit: int = 1000):
+    rejections = 0
+    m_rna = set()
+    stack = set()
+    stack_limited = False
+    starts = tuple(mapping_dict[str(start_codon)].starts)
+    for start in random.sample(starts, len(starts)):
+        for follow in random.sample(start_codon.follow, len(start_codon.follow)):
             # (new roots, translation, source)
-            stack.append((follow, [start], [start_codon]))
+            stack.add((follow, (start,), (start_codon,)))
 
     while stack:
         curr: SequenceNode
-        curr, path, codon = stack.pop()
+        curr, anticodon, codon = stack.pop()
 
         if not curr.follow and curr.stop_valid:
-            for end in mapping_dict[str(curr)].ends:
-                anticodon = path[:]
-                anticodon.append(end)
-                new_codon = codon[:]
-                new_codon.append(curr)
-                m_rna.append((anticodon, new_codon))
+            ends = tuple(mapping_dict[str(curr)].ends)
+            for end in random.sample(ends, len(ends)):
+                new_anticodon = anticodon + (end,)
+                new_codon = codon + (curr,)
+                add_tuple = (new_anticodon, new_codon) if allow_homographs else new_anticodon
+                m_rna.add(add_tuple)
                 # if _debug:
                 #     print(new_path)
 
-        for follow in curr.follow:
-            for middle in mapping_dict[str(curr)].middles:
-                anticodon = path[:]
-                anticodon.append(middle)
-                new_codon = codon[:]
-                new_codon.append(curr)
-                stack.append((follow, anticodon, new_codon))
+        for follow in random.sample(curr.follow, len(curr.follow)):
+            middles = tuple(mapping_dict[str(curr)].middles)
+            for middle in random.sample(middles, len(middles)):
+                new_anticodon = anticodon + (middle,)
+                if (sum(map(len, new_anticodon)) / SequenceNode.target_length) > length_threshold:
+                    rejections += 1
+                    continue
+                graphic = "".join(map(str, new_anticodon[-3:]))
+                graph_weight = 1.0
+                if weight_dict:
+                    for weight_set in sorted(weight_dict.items()):
+                        for wseq in weight_set[1]:
+                            if wseq in graphic:
+                                count = graphic.count(wseq)
+                                graph_weight *= weight_set[0] ** count
 
+                if graph_weight >= graph_threshold:
+                    new_codon = codon + (curr,)
+                    # Limit the stack length
+                    if len(stack) < stack_limit:
+                        stack.add((follow, new_anticodon, new_codon))
+                    else:
+                        stack_limited = True
+                else:
+                    rejections += 1
+
+        print(f'Generated {len(m_rna)} patterns, rejected {rejections}, stack limit {stack_limited}',
+              end='\r', flush=True)
+
+    print('')
     return m_rna
 
 
-def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: dict = None, threshold: float = 1.0):
+def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: dict = None,
+                   allow_homographs: bool = False,
+                   graph_threshold: float = 0.25, length_threshold: float = 1.10, stack_limit: int = 1000):
     plist_full = []
     glist_full = []
     wrap_pattern = re.compile(r'\.(\S+) (\S+)')
@@ -364,10 +431,15 @@ def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: di
         plist_full.extend(phonetic_list)
         # list_columns(phonetic_list, 8, True, 2)
         # Generate ways to write the sound-tree
-        graphic_sequence = transcribe(pseq, phoneme_dict)
+        graphic_sequence = transcribe(pseq, phoneme_dict, weight_dict,
+                                      allow_homographs,
+                                      graph_threshold, length_threshold, stack_limit)
         for seq in graphic_sequence:
-            phonetic = ''.join(map(str, seq[1]))
-            graphic_i = ' '.join(map(str, seq[0]))
+            if allow_homographs:
+                phonetic = ''.join(map(str, seq[1]))
+                graphic_i = ' '.join(map(str, seq[0]))
+            else:
+                graphic_i = ' '.join(map(str, seq))
             graphic_o = re.sub(wrap_pattern, r'\2\1', graphic_i)
             graphic = ''.join(graphic_o.split())
             graph_weight = 1.0
@@ -378,8 +450,11 @@ def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: di
                             count = graphic.count(wseq)
                             graph_weight *= weight_set[0] ** count
 
-            if graph_weight >= threshold:
-                glist_full.append(phonetic + ' -> ' + graphic)
+            if graph_weight >= graph_threshold:
+                if allow_homographs:
+                    glist_full.append(f'{phonetic:<{SequenceNode.target_length+2}}' + ' -> ' + graphic)
+                else:
+                    glist_full.append(graphic)
             # else:
             #     print(f'Rejected: {graphic}')
 
@@ -395,6 +470,17 @@ def main():
     # raise NotImplementedError
 
     phoneme_dict, grapheme_dict = generate_nemes(args.phonemes)
+
+    # pydict = dict()
+    # for phon in phoneme_dict.values():
+    #     pydict[str(phon)] = {
+    #         'starts': list(map(str, phon.starts)),
+    #         'middles': list(map(str, phon.middles)),
+    #         'ends': list(map(str, phon.ends)),
+    #     }
+    #
+    # with open('phonemes.yml', 'w') as yfile:
+    #     yaml.dump(pydict, yfile, allow_unicode=True, sort_keys=False)
 
     if args.phoneme_map:
         mapped_phoneme_dict, mapped_grapheme_dict = generate_nemes(args.phoneme_map)
@@ -428,12 +514,26 @@ def main():
 
     # Single word input, toss extra words, lowercase only.
     word = args.input.split()[0].lower()
+    SequenceNode.target_length = len(word)
     # Take the word and generate ways it could be pronounced, as a set of trees
     phonetic_sequences = reverse_translate(word, grapheme_dict.values())
 
-    glist_full, plist_full = true_translate(phonetic_sequences, mapped_phoneme_dict, weight_dict, args.threshold)
+    print(f'Generated a total of {len(phonetic_sequences)} sequence starts.', flush=True)
 
-    list_columns(glist_full, 6, True, 2)
+    glist_full, plist_full = true_translate(phonetic_sequences=phonetic_sequences,
+                                            phoneme_dict=mapped_phoneme_dict,
+                                            allow_homographs=args.allow_homographs,
+                                            weight_dict=weight_dict,
+                                            graph_threshold=args.graph_threshold,
+                                            length_threshold=args.length_threshold,
+                                            stack_limit=args.stack_limit)
+
+    if args.allow_homographs:
+        columns = 100 // ((2.0 * args.length_threshold) * SequenceNode.target_length + 10)
+    else:
+        columns = 100 // (SequenceNode.target_length * args.length_threshold + 10)
+
+    list_columns(glist_full, columns, True, 6)
 
     # list_columns(plist_full, 8, True, 2)
 

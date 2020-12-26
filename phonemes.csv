@@ -3,14 +3,14 @@ d,d,,dd,ed
 f,"f, ph",,"ff, ft","gh, lf"
 g,"g, gh, gue",gu,gg,
 h,"h","wh",,
-dʒ,"j, g, ge",,"di, gg, dg","dge, "
+dʒ,"j, g, ge",,"di, gg, dg","dge"
 k,"k, c, ch, x",qu,"cc, lk",ck
 l,"l, ll",,,
 m,m,,"mm, mb, mn, lm","mb, mn, lm"
-n,"n, gn, pn",kn,nn,
+n,"n, gn","pn, kn",nn,
 p,p,,pp,
 r,r,"wr, rh","rr, wr, rh",rr
-s,"s, sc",,"ss, c, ps, st, ce, se","ps, ce, se"
+s,"s",sc,"sc, ss, c, ps, st, ce, se","ps, ce, se"
 t,"t, th",,tt,ed
 v,v,,"f, ph, ve","f, ph, ve"
 w,"w, wh",,"u, o",
@@ -20,7 +20,7 @@ tʃ,ch,,"tch, tu, ti, te",tch
 ʃ,"sh, s",,"ce, ci, ch, sci, ti",ch
 θ,th,,,
 ð,th,,,
-ŋ,,,"ng, n, ngu",ngue
+ŋ,,,"ng, n",ngue
 j,"y, i",,j,
 æ,"a, ae",,"ai, au",
 eɪ,"a, ai, ay, er, ei, au, a.e, ea, ey",,"et, eigh, aigh","eigh, aigh"
