@@ -421,14 +421,14 @@ def transcribe(start_codon: SequenceNode, mapping_dict: dict, weight_dict=None,
 def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: dict = None,
                    allow_homographs: bool = False,
                    graph_threshold: float = 0.25, length_threshold: float = 1.10, stack_limit: int = 1000):
-    plist_full = []
-    glist_full = []
-    wrap_pattern = re.compile(r'\.(\S+) (\S+)')
+    plist_full = set()
+    glist_full = set()
+    wrap_pattern = re.compile(r'\.(\S+) ?(\S*)')
     # For each way-tree of how it could be pronounced
     for pseq in phonetic_sequences:
         # Write out the possible phonetics
         phonetic_list = translate(pseq)
-        plist_full.extend(phonetic_list)
+        plist_full.union(phonetic_list)
         # list_columns(phonetic_list, 8, True, 2)
         # Generate ways to write the sound-tree
         graphic_sequence = transcribe(pseq, phoneme_dict, weight_dict,
@@ -452,9 +452,9 @@ def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: di
 
             if graph_weight >= graph_threshold:
                 if allow_homographs:
-                    glist_full.append(f'{phonetic:<{SequenceNode.target_length+2}}' + ' -> ' + graphic)
+                    glist_full.add(f'{phonetic:<{SequenceNode.target_length+2}}' + ' -> ' + graphic)
                 else:
-                    glist_full.append(graphic)
+                    glist_full.add(graphic)
             # else:
             #     print(f'Rejected: {graphic}')
 
