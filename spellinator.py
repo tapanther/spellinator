@@ -192,7 +192,7 @@ def parse_args():
         default=1.10,
         type=float,
         help='Threshold to disallow graph based on length. Values greater than 1.0 allow outputs longer than the '
-             'original word by (<threshold> - 1.0) * 100%.'
+             'original word by (<threshold> - 1.0) * 100 %%.'
     )
 
     parser.add_argument(
