@@ -125,6 +125,9 @@ class Graphemes(Neme):
         return hash(self.name)
 
 
+null_node = SequenceNode('', None, True)
+
+
 def parse_args():
     """
     Parse command line arguments to a global variable.
@@ -366,10 +369,15 @@ def transcribe(start_codon: SequenceNode, mapping_dict: dict, weight_dict=None,
     stack = set()
     stack_limited = False
     starts = tuple(mapping_dict[str(start_codon)].starts)
+
     for start in random.sample(starts, len(starts)):
+        added = False
         for follow in random.sample(start_codon.follow, len(start_codon.follow)):
             # (new roots, translation, source)
             stack.add((follow, (start,), (start_codon,)))
+            added = True
+        if not added:
+            stack.add((null_node, (start,), (start_codon,)))
 
     while stack:
         curr: SequenceNode
@@ -519,6 +527,17 @@ def main():
     phonetic_sequences = reverse_translate(word, grapheme_dict.values())
 
     print(f'Generated a total of {len(phonetic_sequences)} sequence starts.', flush=True)
+
+    # Add a null phoneme
+    null = Phoneme(
+        name='',
+        number=-1,
+        phoneme_dict=mapped_phoneme_dict,
+        grapheme_dict=mapped_grapheme_dict,
+        starts=set(['']),
+        middles=set(['']),
+        ends=set(['']),
+    )
 
     glist_full, plist_full = true_translate(phonetic_sequences=phonetic_sequences,
                                             phoneme_dict=mapped_phoneme_dict,
