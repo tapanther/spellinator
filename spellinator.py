@@ -207,6 +207,13 @@ def parse_args():
              'but also take exponentially longer.'
     )
 
+    parser.add_argument(
+        '-o',
+        '--output',
+        type=str,
+        help='Output file to store results.'
+    )
+
     args = parser.parse_args()
 
     return args
@@ -554,6 +561,11 @@ def main():
 
     list_columns(glist_full, columns, True, 6)
 
+    if args.output:
+        with open(args.output, 'w') as fp:
+            fp.write("\n".join(str(item) for item in glist_full))
+            
+    
     # list_columns(plist_full, 8, True, 2)
 
     # print('=====spellcheck====')
