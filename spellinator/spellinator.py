@@ -2,8 +2,10 @@
 # coding=utf-8
 
 from collections import deque
-from pprint import pprint
+from collections.abc import Iterable
+from pprint import pprint, pformat
 from time import sleep
+from pathlib import Path
 
 import csv
 import argparse
@@ -12,16 +14,16 @@ import math
 import yaml
 import random
 
-_debug = True
+_debug = False
 
 
-def list_columns(obj, cols=4, columnwise=True, gap=4):
+def list_columns(obj, cols=4, columnwise=True, gap=4, limit=None):
     """
     Print the given list in evenly-spaced columns.
 
     Parameters
     ----------
-    obj : list
+    obj : Iterable
         The list to be printed.
     cols : int
         The number of columns in which the list should be printed.
@@ -32,12 +34,19 @@ def list_columns(obj, cols=4, columnwise=True, gap=4):
         The number of spaces that should separate the longest column
         item/s from the next column. This is the effective spacing
         between columns based on the maximum len() of the list items.
+    limit : int
+        Limit the output to these many entries
     """
 
     sobj = [str(item) for item in obj]
-    if cols > len(sobj): cols = len(sobj)
+    if limit:
+        newlen = min(len(sobj), limit)
+        sobj = sobj[:newlen]
+    if cols > len(sobj):
+        cols = len(sobj)
     max_len = max([len(item) for item in sobj])
-    if columnwise: cols = int(math.ceil(float(len(sobj)) / float(cols)))
+    if columnwise:
+        cols = int(math.ceil(float(len(sobj)) / float(cols)))
     plist = [sobj[i: i + cols] for i in range(0, len(sobj), cols)]
     if columnwise:
         if not len(plist[-1]) == cols:
@@ -46,7 +55,7 @@ def list_columns(obj, cols=4, columnwise=True, gap=4):
     printer = '\n'.join([
         ''.join([c.ljust(max_len + gap) for c in p])
         for p in plist])
-    print(printer)
+    return printer
 
 
 class SequenceNode:
@@ -128,7 +137,7 @@ class Graphemes(Neme):
 null_node = SequenceNode('', None, True)
 
 
-def parse_args():
+def parse_args(argv):
     """
     Parse command line arguments to a global variable.
 
@@ -141,9 +150,15 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
+        '-y',
+        '--library',
+        default='spellinator/en',
+        help='Directory path containing weights.csv and phonemes.csv'
+    )
+
+    parser.add_argument(
         '-p',
         '--phonemes',
-        default='phonemes.csv',
         help='CSV containing the phonemes and graphemes for the language.'
     )
 
@@ -168,17 +183,9 @@ def parse_args():
     )
 
     parser.add_argument(
-        '-c',
-        '--categories',
-        default='categories.csv',
-        help='CSV containing graph categories, used to apply weights to output graphs'
-    )
-
-    parser.add_argument(
         '-w',
         '--weights',
-        default='weights.csv',
-        help='CSV containing weights for graphemes/categories.'
+        help='CSV containing weights for graphemes.'
     )
 
     parser.add_argument(
@@ -214,7 +221,26 @@ def parse_args():
         help='Output file to store results.'
     )
 
-    args = parser.parse_args()
+    parser.add_argument(
+        '--print-width',
+        default=100,
+        type=int,
+        help='Guidance to keep printout to approximately this width.'
+    )
+
+    parser.add_argument(
+        '--limit',
+        type=int,
+        help='Limit number of generated results.'
+    )
+
+    args = parser.parse_args(argv)
+
+    if len([x for x in (args.phonemes, args.weights) if x is not None]) == 1:
+        parser.error('--phonemes and --weight must be given together')
+
+    args.phonemes = Path(args.phonemes) if args.phonemes is not None else Path(args.library, 'phonemes.csv')
+    args.weights = Path(args.weights) if args.weights is not None else Path(args.library, 'weights.csv')
 
     return args
 
@@ -284,12 +310,13 @@ def generate_nemes(neme_file):
             ends=end_set,
         )
 
-    print(f'Generated {len(phoneme_dict)} phonemes and {len(grapheme_dict)} graphemes.')
+    if _debug:
+        print(f'Generated {len(phoneme_dict)} phonemes and {len(grapheme_dict)} graphemes.')
 
     return phoneme_dict, grapheme_dict
 
 
-def reverse_translate(rna: str, genes: list):
+def reverse_translate(rna: str, genes: Iterable, fast_mode=False):
     results = []
 
     starting_genes = set((gene for gene in genes if gene.starts))
@@ -314,6 +341,7 @@ def reverse_translate(rna: str, genes: list):
         # print(f'Working on: {word_list}')
         new_word_list = []
         for word_node in word_list:
+            mutation_count = 0
             remaining_word = word_node.remainder
             # print(f'{word_node} : {remaining_word}')
             # See if we can finish the word
@@ -326,18 +354,27 @@ def reverse_translate(rna: str, genes: list):
                         word_node.follow.append(new_word_node)
 
             for mg in middling_genes:
+                if fast_mode:
+                    if mutation_count > 3:
+                        break
                 new_remainder = remaining_word.replace(str(mg), '', 1)
                 if remaining_word.startswith(str(mg)) and len(new_remainder) > 0:
                     # print(f'Enqueued {str(mg)}')
                     for amino in mg.middles:
+                        mutation_count += 1
+                        if fast_mode:
+                            if mutation_count > 3:
+                                break
                         new_word_node = SequenceNode(amino, new_remainder)
                         word_node.follow.append(new_word_node)
                         new_word_list.append(new_word_node)
 
-        print(f'Generated {len(results)} {word_list[0].gene.gene_type} patterns so far...', end='\r', flush=True)
+        if _debug:
+            print(f'Generated {len(results)} {word_list[0].gene.gene_type} patterns so far...', end='\r', flush=True)
         word_list = new_word_list
 
-    print('')
+    if _debug:
+        print('')
     return results
 
 
@@ -426,10 +463,12 @@ def transcribe(start_codon: SequenceNode, mapping_dict: dict, weight_dict=None,
                 else:
                     rejections += 1
 
-        print(f'Generated {len(m_rna)} patterns, rejected {rejections}, stack limit {stack_limited}',
-              end='\r', flush=True)
+        if _debug:
+            print(f'Generated {len(m_rna)} patterns, rejected {rejections}, stack limit {stack_limited}',
+                  end='\r', flush=True)
 
-    print('')
+    if _debug:
+        print('')
     return m_rna
 
 
@@ -454,6 +493,7 @@ def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: di
                 phonetic = ''.join(map(str, seq[1]))
                 graphic_i = ' '.join(map(str, seq[0]))
             else:
+                phonetic = ''
                 graphic_i = ' '.join(map(str, seq))
             graphic_o = re.sub(wrap_pattern, r'\2\1', graphic_i)
             graphic = ''.join(graphic_o.split())
@@ -467,7 +507,7 @@ def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: di
 
             if graph_weight >= graph_threshold:
                 if allow_homographs:
-                    glist_full.add(f'{phonetic:<{SequenceNode.target_length+2}}' + ' -> ' + graphic)
+                    glist_full.add(f'{phonetic:<{SequenceNode.target_length + 2}}' + ' -> ' + graphic)
                 else:
                     glist_full.add(graphic)
             # else:
@@ -476,8 +516,8 @@ def true_translate(phonetic_sequences: list, phoneme_dict: dict, weight_dict: di
     return glist_full, plist_full
 
 
-def main():
-    args = parse_args()
+def main(argv=None):
+    args = parse_args(argv)
 
     weight_dict = generate_weights(args.weights)
 
@@ -502,38 +542,13 @@ def main():
     else:
         mapped_phoneme_dict, mapped_grapheme_dict = phoneme_dict, grapheme_dict
 
-    # print(grapheme_dict.keys())
-    # print(phoneme_dict.keys())
-    #
-    # print(mapped_grapheme_dict.keys())
-    # print(mapped_phoneme_dict.keys())
-    #
-    # raise NotImplementedError
-
-    # phone: phoneme
-    # for phone in phonemes.values():
-    #     print(f'{phone.name}')
-    #     print(f'    start: {phone.starts}')
-    #     print(f'    middles: {phone.middles}')
-    #     print(f'    ends: {phone.ends}')
-    #     print('='*40)
-    #
-    # print('\n'+'-'*40+'\n')
-    # graph: graphemes
-    # for graph in graphemes.all_graphemes.values():
-    #     print(f'{graph.name}')
-    #     print(f'    start: {graph.starts}')
-    #     print(f'    middles: {graph.middles}')
-    #     print(f'    ends: {graph.ends}')
-    #     print('=' * 40)
-
     # Single word input, toss extra words, lowercase only.
     word = args.input.split()[0].lower()
     SequenceNode.target_length = len(word)
     # Take the word and generate ways it could be pronounced, as a set of trees
-    phonetic_sequences = reverse_translate(word, grapheme_dict.values())
+    phonetic_sequences = reverse_translate(word, grapheme_dict.values(), args.limit)
 
-    print(f'Generated a total of {len(phonetic_sequences)} sequence starts.', flush=True)
+    # print(f'Generated a total of {len(phonetic_sequences)} sequence starts.', flush=True)
 
     # Add a null phoneme
     null = Phoneme(
@@ -541,9 +556,9 @@ def main():
         number=-1,
         phoneme_dict=mapped_phoneme_dict,
         grapheme_dict=mapped_grapheme_dict,
-        starts=set(['']),
-        middles=set(['']),
-        ends=set(['']),
+        starts={''},
+        middles={''},
+        ends={''},
     )
 
     glist_full, plist_full = true_translate(phonetic_sequences=phonetic_sequences,
@@ -555,34 +570,21 @@ def main():
                                             stack_limit=args.stack_limit)
 
     if args.allow_homographs:
-        columns = 100 // ((2.0 * args.length_threshold) * SequenceNode.target_length + 10)
+        columns = max(1, args.print_width // ((2.0 * args.length_threshold) * SequenceNode.target_length + 10))
     else:
-        columns = 100 // (SequenceNode.target_length * args.length_threshold + 10)
+        columns = max(1, args.print_width // (SequenceNode.target_length * args.length_threshold + 10))
 
-    list_columns(glist_full, columns, True, 6)
+    printer = list_columns(glist_full, columns, True, 6, args.limit)
+    if _debug:
+        print(printer)
 
     if args.output:
         with open(args.output, 'w') as fp:
             fp.write("\n".join(str(item) for item in glist_full))
-            
-    
-    # list_columns(plist_full, 8, True, 2)
 
-    # print('=====spellcheck====')
-    # spell_test = translate(phonetic)
-    # for spelling in spell_test:
-    #     print(spelling)
-    # phoword = spell_test.pop()
-    # print('====phoword====')
-    # print(phoword)
-    # phoword = 'ɑ:rθer'
-    # reverse_transcriptions = reverse_translate(phoword, Phoneme.all_phonemes.values())
-    # graphetic = reverse_transcriptions[0]
-    # print('=====spellcheck====')
-    # spell_test = translate(graphetic)
-    # for spelling in spell_test:
-    #     print(spelling)
+    return printer
 
 
 if __name__ == '__main__':
+    _debug = True
     main()
