@@ -9,10 +9,10 @@ from spellinator.constants import *
 from datetime import datetime
 from pprint import pprint
 
-roll_plugin = lightbulb.Plugin("Roll")
+spell_plugin = lightbulb.Plugin("Spell")
 
 
-@roll_plugin.command
+@spell_plugin.command
 @lightbulb.option(
     'show_phonemes',
     "Show full roll results",
@@ -71,4 +71,4 @@ async def spell(ctx: lightbulb.Context, index: int = None) -> None:
 
 
 def load(bot: lightbulb.BotApp) -> None:
-    bot.add_plugin(roll_plugin)
+    bot.add_plugin(spell_plugin)
