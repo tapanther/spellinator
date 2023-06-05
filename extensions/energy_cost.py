@@ -2,6 +2,7 @@ import hikari
 import lightbulb
 
 from datetime import datetime, date, time
+from pytz import timezone
 
 from spellinator.constants import *
 
@@ -61,12 +62,13 @@ async def energy_cost(ctx: lightbulb.Context) -> None:
 
 
 async def ecost(ctx: lightbulb.Context) -> None:
-    today_dt = datetime.today()
+    bayarea = timezone('America/Los_Angeles')
+    today_dt = datetime.now(bayarea)
     current_year = today_dt.year
     current_month = today_dt.month
     current_day = today_dt.day
-    tou_d_summer_start = datetime(current_year, 6, 1)
-    tou_d_summer_end = datetime(current_year, 10, 1)
+    tou_d_summer_start = datetime(current_year, 6, 1, tzinfo=bayarea)
+    tou_d_summer_end = datetime(current_year, 10, 1, tzinfo=bayarea)
 
     tou_d_peak_start = datetime(
         year=current_year,
