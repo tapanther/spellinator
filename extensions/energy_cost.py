@@ -1,7 +1,7 @@
+from datetime import datetime, time
+
 import hikari
 import lightbulb
-
-from datetime import datetime, date, time
 from pytz import timezone
 
 from spellinator.constants import *
@@ -61,9 +61,23 @@ async def energy_cost(ctx: lightbulb.Context) -> None:
     await ecost(ctx)
 
 
-async def ecost(ctx: lightbulb.Context) -> None:
+def ecost_calculator(
+        soc_delta,
+        charge_start_time=time.fromisoformat("17:00"),
+        charge_stop_time=time.fromisoformat("21:30"),
+        force_peak=False,
+        force_offpeak=False,
+        today_ovrd=None):
     bayarea = timezone('America/Los_Angeles')
-    today_dt = datetime.now(bayarea)
+    if today_ovrd:
+        today_dt = datetime(
+            today_ovrd.year,
+            today_ovrd.month,
+            today_ovrd.day,
+            tzinfo=bayarea,
+        )
+    else:
+        today_dt = datetime.now(bayarea)
     current_year = today_dt.year
     current_month = today_dt.month
     current_day = today_dt.day
@@ -83,12 +97,9 @@ async def ecost(ctx: lightbulb.Context) -> None:
         hour=21,
     )
 
-    soc_delta = ctx.options.esoc - ctx.options.isoc
     # Assume 15% loss on charger for now
     kwh_consumed = (BZ4X_BATT * soc_delta / 100) / 0.85
 
-    charge_start_time = time.fromisoformat(ctx.options.start)
-    charge_stop_time = time.fromisoformat(ctx.options.stop)
     charge_start = datetime(
         year=current_year,
         month=current_month,
@@ -107,11 +118,15 @@ async def ecost(ctx: lightbulb.Context) -> None:
     charge_time = charge_end - charge_start
     charge_time_hr = charge_time.total_seconds() / 3600
 
-    if today_dt.weekday() < 5:
+    tou_d_start_peak_overlap = tou_d_peak_end > charge_start > tou_d_peak_start
+    tou_d_end_peak_overlap = tou_d_peak_end > charge_end > tou_d_peak_start
+    tou_d_peak_overlap = tou_d_start_peak_overlap or tou_d_end_peak_overlap
+
+    if (today_dt.weekday() < 5) and tou_d_peak_overlap:
         peak_duration = tou_d_peak_end - tou_d_peak_start
-        if tou_d_peak_end > charge_start > tou_d_peak_start:
+        if tou_d_start_peak_overlap:
             peak_duration -= charge_start - tou_d_peak_start
-        if tou_d_peak_end > charge_end > tou_d_peak_start:
+        if tou_d_end_peak_overlap:
             peak_duration -= tou_d_peak_end - charge_end
 
         peak_duration = peak_duration.total_seconds() / 3600
@@ -119,16 +134,29 @@ async def ecost(ctx: lightbulb.Context) -> None:
         peak_duration = 0
 
     peak_price = 0.49 if (tou_d_summer_start < today_dt < tou_d_summer_end) else 0.40
-    peak_price = 0.36 if ctx.options.force_offpeak else peak_price
-    peak_price = 0.49 if ctx.options.force_peak else peak_price
+    peak_price = 0.36 if force_offpeak else peak_price
+    peak_price = 0.49 if force_peak else peak_price
 
-    offpeak_price = 0.36
-    offpeak_price = 0.49 if ctx.options.force_peak else offpeak_price
+    offpeak_price = 0.36 if (tou_d_summer_start < today_dt < tou_d_summer_end) else 0.37
+    offpeak_price = 0.49 if force_peak else offpeak_price
 
     peak_cost = peak_price * peak_duration
     offpeak_cost = offpeak_price * (charge_time_hr - peak_duration)
     average_cost = (peak_cost + offpeak_cost) / charge_time_hr
     total_cost = average_cost * kwh_consumed
+
+    return kwh_consumed, peak_duration, peak_cost, offpeak_cost, charge_time_hr, total_cost, average_cost
+
+
+async def ecost(ctx: lightbulb.Context) -> None:
+    soc_delta = ctx.options.esoc - ctx.options.isoc
+
+    charge_start_time = time.fromisoformat(ctx.options.start)
+    charge_stop_time = time.fromisoformat(ctx.options.stop)
+
+    kwh_consumed, peak_duration, peak_cost, offpeak_cost, charge_time_hr, total_cost, average_cost = ecost_calculator(
+        soc_delta, charge_start_time, charge_stop_time, ctx.options.force_peak, ctx.options.force_offpeak
+    )
 
     response = hikari.Embed(
         color=color_neongreen,
