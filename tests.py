@@ -1,5 +1,5 @@
 import unittest
-from energy_cost import ecost_calculator
+from extensions.energy_cost import ecost_calculator
 
 from datetime import time, datetime
 
