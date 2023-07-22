@@ -27,10 +27,16 @@ class MyTestCase(unittest.TestCase):
         expected_cost = expected_cost_calc(soc_delta, 0.36)
         self.assertAlmostEqual(total_cost, expected_cost, delta=0.05)
 
-        _, _, _, _, _, total_cost, _ = \
+        _, peak_dur, _, _, _, total_cost, avg = \
             ecost_calculator(soc_delta=soc_delta, charge_start_time=time.fromisoformat("16:00"),
                              charge_stop_time=time.fromisoformat("18:00"), today_ovrd=today_ovrd)
         expected_cost = expected_cost_calc(soc_delta, 0.425)
+        self.assertAlmostEqual(total_cost, expected_cost, delta=0.05)
+
+        _, peak_dur, _, _, _, total_cost, _ = \
+            ecost_calculator(soc_delta=soc_delta, charge_start_time=time.fromisoformat("16:00"),
+                             charge_stop_time=time.fromisoformat("23:00"), today_ovrd=today_ovrd)
+        expected_cost = expected_cost_calc(soc_delta, 0.43)
         self.assertAlmostEqual(total_cost, expected_cost, delta=0.05)
 
         today_ovrd = datetime(
@@ -51,6 +57,12 @@ class MyTestCase(unittest.TestCase):
         _, _, _, _, _, total_cost, _ = \
             ecost_calculator(soc_delta=soc_delta, charge_start_time=time.fromisoformat("16:00"),
                              charge_stop_time=time.fromisoformat("18:00"), today_ovrd=today_ovrd)
+        expected_cost = expected_cost_calc(soc_delta, 0.385)
+        self.assertAlmostEqual(total_cost, expected_cost, delta=0.05)
+
+        _, peak_dur, _, _, _, total_cost, _ = \
+            ecost_calculator(soc_delta=soc_delta, charge_start_time=time.fromisoformat("16:00"),
+                             charge_stop_time=time.fromisoformat("23:00"), today_ovrd=today_ovrd)
         expected_cost = expected_cost_calc(soc_delta, 0.385)
         self.assertAlmostEqual(total_cost, expected_cost, delta=0.05)
 

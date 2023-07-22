@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 import hikari
 import lightbulb
@@ -118,16 +118,16 @@ def ecost_calculator(
     charge_time = charge_end - charge_start
     charge_time_hr = charge_time.total_seconds() / 3600
 
-    tou_d_start_peak_overlap = tou_d_peak_end > charge_start > tou_d_peak_start
-    tou_d_end_peak_overlap = tou_d_peak_end > charge_end > tou_d_peak_start
+    tou_d_start_peak_overlap = tou_d_peak_end > charge_start and charge_end > tou_d_peak_start
+    tou_d_end_peak_overlap = tou_d_peak_end > charge_start and charge_end > tou_d_peak_start
     tou_d_peak_overlap = tou_d_start_peak_overlap or tou_d_end_peak_overlap
 
     if (today_dt.weekday() < 5) and tou_d_peak_overlap:
         peak_duration = tou_d_peak_end - tou_d_peak_start
         if tou_d_start_peak_overlap:
-            peak_duration -= charge_start - tou_d_peak_start
+            peak_duration -= max(timedelta(0), charge_start - tou_d_peak_start)
         if tou_d_end_peak_overlap:
-            peak_duration -= tou_d_peak_end - charge_end
+            peak_duration -= max(timedelta(0), tou_d_peak_end - charge_end)
 
         peak_duration = peak_duration.total_seconds() / 3600
     else:
