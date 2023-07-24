@@ -170,7 +170,7 @@ async def ecost(ctx: lightbulb.Context) -> None:
     charge_stop_time = time.fromisoformat(ctx.options.stop)
 
     kwh_consumed, peak_duration, peak_cost, offpeak_cost, charge_time_hr, total_cost, average_cost = ecost_calculator(
-        soc_delta, charge_start_time, charge_stop_time, ctx.options.force_peak, ctx.options.force_offpeak,
+        soc_delta, charge_start_time, charge_stop_time, ctx.options.force_peak, ctx.options.force_offpeak, None,
         ctx.options.efficiency, ctx.options.capacity,
     )
 
