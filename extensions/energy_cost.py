@@ -58,6 +58,12 @@ energy_cost_plugin = lightbulb.Plugin("eCost")
     default=0.90,
     type=hikari.OptionType.FLOAT,
 )
+@lightbulb.option(
+    'capacity',
+    'Battery capacity of EV @ 100%',
+    default=BZ4X_BATT,
+    type=hikari.OptionType.FLOAT,
+)
 @lightbulb.command(
     "ecost",
     "Energy Cost",
@@ -74,7 +80,8 @@ def ecost_calculator(
         force_peak=False,
         force_offpeak=False,
         today_ovrd=None,
-        efficiency=0.94
+        efficiency=0.90,
+        battery_capacity=BZ4X_BATT,
     ):
     bayarea = timezone('America/Los_Angeles')
     if today_ovrd:
@@ -106,7 +113,7 @@ def ecost_calculator(
     )
 
     # Assume 15% loss on charger for now
-    kwh_consumed = (BZ4X_BATT * soc_delta / 100) / efficiency
+    kwh_consumed = (battery_capacity * soc_delta / 100) / efficiency
 
     charge_start = datetime(
         year=current_year,
@@ -163,7 +170,8 @@ async def ecost(ctx: lightbulb.Context) -> None:
     charge_stop_time = time.fromisoformat(ctx.options.stop)
 
     kwh_consumed, peak_duration, peak_cost, offpeak_cost, charge_time_hr, total_cost, average_cost = ecost_calculator(
-        soc_delta, charge_start_time, charge_stop_time, ctx.options.force_peak, ctx.options.force_offpeak
+        soc_delta, charge_start_time, charge_stop_time, ctx.options.force_peak, ctx.options.force_offpeak,
+        ctx.options.efficiency, ctx.options.capacity,
     )
 
     response = hikari.Embed(
