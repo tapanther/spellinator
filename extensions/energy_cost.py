@@ -55,7 +55,7 @@ energy_cost_plugin = lightbulb.Plugin("eCost")
 @lightbulb.option(
     'efficiency',
     'Charging efficiency: batt_rx / pwr_delivered',
-    default=0.94,
+    default=0.90,
     type=hikari.OptionType.FLOAT,
 )
 @lightbulb.command(
