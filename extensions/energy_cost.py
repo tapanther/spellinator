@@ -52,6 +52,12 @@ energy_cost_plugin = lightbulb.Plugin("eCost")
     default=False,
     type=hikari.OptionType.BOOLEAN,
 )
+@lightbulb.option(
+    'efficiency',
+    'Charging efficiency: batt_rx / pwr_delivered',
+    default=0.94,
+    type=hikari.OptionType.FLOAT,
+)
 @lightbulb.command(
     "ecost",
     "Energy Cost",
@@ -67,7 +73,9 @@ def ecost_calculator(
         charge_stop_time=time.fromisoformat("21:30"),
         force_peak=False,
         force_offpeak=False,
-        today_ovrd=None):
+        today_ovrd=None,
+        efficiency=0.94
+    ):
     bayarea = timezone('America/Los_Angeles')
     if today_ovrd:
         today_dt = datetime(
@@ -98,7 +106,7 @@ def ecost_calculator(
     )
 
     # Assume 15% loss on charger for now
-    kwh_consumed = (BZ4X_BATT * soc_delta / 100) / 0.85
+    kwh_consumed = (BZ4X_BATT * soc_delta / 100) / efficiency
 
     charge_start = datetime(
         year=current_year,
