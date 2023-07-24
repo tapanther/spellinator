@@ -5,7 +5,7 @@ from datetime import time, datetime
 
 
 def expected_cost_calc(soc_delta, avg_cost):
-    return 66.6 * soc_delta / 0.85 * avg_cost / 100
+    return 66.6 * soc_delta / 0.94 * avg_cost / 100
 
 
 # noinspection DuplicatedCode
