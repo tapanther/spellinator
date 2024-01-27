@@ -16,6 +16,8 @@ import random
 
 _debug = False
 
+__all__ = ['list_columns']
+
 
 def list_columns(obj, cols=4, columnwise=True, gap=4, limit=None):
     """

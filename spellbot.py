@@ -89,7 +89,7 @@ bot = lightbulb.BotApp(
     prefix='+',
     banner=None,
     intents=hikari.Intents.ALL,
-    #default_enabled_guilds=(694706423170465877, 687788876286394373, 694226432586547231),
+    #default_enabled_guilds=(694706423170465877),
     help_class=CustomHelp,
     help_slash_command=True,
 )
