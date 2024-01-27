@@ -15,7 +15,7 @@ spell_plugin = lightbulb.Plugin("Spell")
 @spell_plugin.command
 @lightbulb.option(
     'show_phonemes',
-    "Show full roll results",
+    "Show phonemes",
     type=hikari.OptionType.BOOLEAN,
     default=False,
 )
@@ -31,7 +31,7 @@ spell_plugin = lightbulb.Plugin("Spell")
     "Respell a word",
 )
 @lightbulb.implements(lightbulb.SlashCommand)
-async def standard_roll(ctx: lightbulb.Context) -> None:
+async def standard_spell(ctx: lightbulb.Context) -> None:
     await spell(ctx)
 
 
