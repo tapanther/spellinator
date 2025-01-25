@@ -1,0 +1,6 @@
+hikari
+pytz
+python-dotenv
+uvloop
+hikari-lightbulb
+pyyaml

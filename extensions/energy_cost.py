@@ -109,7 +109,7 @@ def ecost_calculator(
         year=current_year,
         month=current_month,
         day=current_day,
-        hour=21,
+        hour=20,
     )
 
     # Assume 15% loss on charger for now
@@ -148,12 +148,12 @@ def ecost_calculator(
     else:
         peak_duration = 0
 
-    peak_price = 0.49 if (tou_d_summer_start < today_dt < tou_d_summer_end) else 0.40
-    peak_price = 0.36 if force_offpeak else peak_price
-    peak_price = 0.49 if force_peak else peak_price
+    peak_price = 0.56 if (tou_d_summer_start < today_dt < tou_d_summer_end) else 0.48
+    peak_price = 0.43 if force_offpeak else peak_price
+    peak_price = 0.56 if force_peak else peak_price
 
-    offpeak_price = 0.36 if (tou_d_summer_start < today_dt < tou_d_summer_end) else 0.37
-    offpeak_price = 0.49 if force_peak else offpeak_price
+    offpeak_price = 0.44 if (tou_d_summer_start < today_dt < tou_d_summer_end) else 0.43
+    offpeak_price = 0.43 if force_peak else offpeak_price
 
     peak_cost = peak_price * peak_duration
     offpeak_cost = offpeak_price * (charge_time_hr - peak_duration)
